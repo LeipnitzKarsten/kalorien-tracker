@@ -861,52 +861,83 @@ function onSearch(val) {
   searchTimer = setTimeout(() => doSearch(q), 650);
 }
 
-// Filtert und sortiert nach Relevanz: Produkte wo Suchbegriff im Namen/Marke vorkommt
+// Filtert nicht-lateinische Zeichen (Arabisch, Hindi, Chinesisch usw.)
+function hasNonLatin(str) {
+  return /[^ -ɏḀ-ỿ\s\d.,\-'()%&+°/]/u.test(str || '');
+}
+
+// Relevanz-Score: wie gut passt das Produkt zum Suchbegriff?
+function scoreProduct(p, words) {
+  const name   = (p.product_name_de || p.product_name || '').toLowerCase();
+  const brand  = (p.brands || '').toLowerCase();
+  const text   = name + ' ' + brand;
+  let score = 0;
+  for (const w of words) {
+    if (brand.includes(w))  score += 3;  // Marken-Treffer zählt mehr
+    else if (name.includes(w)) score += 1;
+  }
+  return score;
+}
+
 function byRelevance(prods, query) {
   const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
   if (!words.length) return prods;
   return prods
-    .map(p => {
-      const text = [p.product_name_de, p.product_name, p.brands]
-        .filter(Boolean).join(' ').toLowerCase();
-      const hits = words.filter(w => text.includes(w)).length;
-      return { p, hits };
-    })
-    .filter(({ hits }) => hits > 0)           // mind. ein Wort muss passen
-    .sort((a, b) => b.hits - a.hits)          // mehr Treffer = weiter oben
+    .map(p => ({ p, score: scoreProduct(p, words) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
     .map(({ p }) => p);
+}
+
+// Dedupliziert nach Barcode / Produktname
+function dedupe(prods) {
+  const seen = new Set();
+  return prods.filter(p => {
+    const key = p.code || p.id || (p.product_name + '|' + p.brands);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+// Basis-Filter: muss Kalorien haben, darf kein nicht-lateinisches Alphabet haben
+function isUsable(p) {
+  const name = p.product_name_de || p.product_name || '';
+  return p.nutriments?.['energy-kcal_100g'] != null && !hasNonLatin(name);
 }
 
 async function doSearch(q) {
   const ctrl = new AbortController();
   searchAbort = ctrl;
+  const sig    = ctrl.signal;
   const FIELDS = 'product_name,product_name_de,brands,nutriments';
+  const SORT   = 'sort_by=unique_scans_n';
+  const DE     = 'countries_tags=en:germany';
+  const enc    = encodeURIComponent;
+  const first  = enc(q.split(/\s+/)[0]); // erstes Wort (oft die Marke)
 
-  const tryFetch = async (url) => {
-    const r = await fetch(url, { signal: ctrl.signal });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
-    return (d.products || []).filter(p => p.nutriments?.['energy-kcal_100g'] != null);
+  const get = async (url) => {
+    const r = await fetch(url, { signal: sig });
+    if (!r.ok) throw new Error(r.status);
+    return ((await r.json()).products || []).filter(isUsable);
   };
 
   try {
-    // Mehr Ergebnisse holen (40), nach Beliebtheit sortiert, dann client-seitig filtern
-    let raw = await tryFetch(
-      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=1&page_size=40&sort_by=unique_scans_n&fields=${FIELDS}`
-    );
+    // ── Runde 1: Deutschland, Marken-Suche + Volltext parallel ──────────────
+    const [byBrand, byText] = await Promise.all([
+      get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${DE}&${SORT}&json=1&page_size=30&fields=${FIELDS}`),
+      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${DE}&${SORT}&json=1&page_size=30&fields=${FIELDS}`)
+    ]);
 
-    let prods = byRelevance(raw, q);
+    let prods = byRelevance(dedupe([...byBrand, ...byText]), q);
 
-    // Fallback: v2-API wenn Relevanzfilter alles rauswirft
+    // ── Runde 2: weltweit, wenn Deutschland nichts liefert ──────────────────
     if (!prods.length) {
-      raw = await tryFetch(
-        `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(q)}&page_size=40&sort_by=unique_scans_n&fields=${FIELDS}`
-      );
-      prods = byRelevance(raw, q);
+      const [wb, wt] = await Promise.all([
+        get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${SORT}&json=1&page_size=30&fields=${FIELDS}`),
+        get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${SORT}&json=1&page_size=30&fields=${FIELDS}`)
+      ]);
+      prods = byRelevance(dedupe([...wb, ...wt]), q);
     }
-
-    // Letzter Fallback: ungefiltert zeigen (zumindest irgendwas)
-    if (!prods.length && raw.length) prods = raw.slice(0, 15);
 
     searchCache[q] = prods;
     showResults(prods);
