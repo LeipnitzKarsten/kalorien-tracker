@@ -645,9 +645,10 @@ const CIRC   = 534; // 2π × 85
 // ── State ───────────────────────────────────────────────────────────────────
 let viewDate    = dateStr(new Date());
 let curProduct  = null;
-let searchTimer = null;
-let scanner     = null;
-let searchCache = {}; // query → results
+let searchTimer   = null;
+let scanner       = null;
+let searchCache   = {}; // query → results
+let searchAbort   = null; // AbortController für laufende Suche
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function dateStr(d) { return d.toISOString().split('T')[0]; }
@@ -817,15 +818,21 @@ function openSearch() {
   setTimeout(() => document.getElementById('search-inp').focus(), 320);
 }
 function closeSearch() {
+  if (searchAbort) { searchAbort.abort(); searchAbort = null; }
+  clearTimeout(searchTimer);
   document.getElementById('ov-search').classList.remove('open');
   document.getElementById('search-inp').value = '';
   document.getElementById('results').innerHTML = '';
+  document.getElementById('recent-wrap').style.display = 'none';
   document.getElementById('search-hint').textContent = 'Suchbegriff eingeben oder Barcode scannen';
   window._sr = [];
 }
 
 function onSearch(val) {
   clearTimeout(searchTimer);
+  // Laufende Anfrage abbrechen
+  if (searchAbort) { searchAbort.abort(); searchAbort = null; }
+
   const q = val.trim();
   if (q.length < 2) {
     document.getElementById('results').innerHTML = '';
@@ -835,21 +842,42 @@ function onSearch(val) {
   }
   document.getElementById('recent-wrap').style.display = 'none';
   document.getElementById('search-hint').textContent = 'Suche…';
-  document.getElementById('results').innerHTML = '';
+  // Ergebnisse NICHT leeren – verhindert Sprung der Liste
   if (searchCache[q]) { showResults(searchCache[q]); return; }
-  searchTimer = setTimeout(() => doSearch(q), 420);
+  searchTimer = setTimeout(() => doSearch(q), 650);
 }
 
 async function doSearch(q) {
-  try {
-    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=1&page_size=15&fields=product_name,product_name_de,brands,nutriments&lc=de&cc=de`;
-    const r = await fetch(url);
+  const ctrl = new AbortController();
+  searchAbort = ctrl;
+  const FIELDS = 'product_name,product_name_de,brands,nutriments';
+
+  const tryFetch = async (url) => {
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
-    const prods = (d.products || []).filter(p => p.nutriments?.['energy-kcal_100g'] != null);
+    return (d.products || []).filter(p => p.nutriments?.['energy-kcal_100g'] != null);
+  };
+
+  try {
+    // Versuch 1: weltweite Suche, kein Länderfilter
+    let prods = await tryFetch(
+      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=1&page_size=20&fields=${FIELDS}`
+    );
+
+    // Versuch 2: v2-API als Fallback wenn leer
+    if (!prods.length) {
+      prods = await tryFetch(
+        `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(q)}&page_size=20&fields=${FIELDS}`
+      );
+    }
+
     searchCache[q] = prods;
     showResults(prods);
-  } catch {
-    document.getElementById('search-hint').textContent = 'Fehler – bitte nochmal versuchen.';
+  } catch (e) {
+    if (e.name === 'AbortError') return; // ignorieren – neuer Suchbegriff
+    document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
+    document.getElementById('results').innerHTML = '';
   }
 }
 
@@ -859,6 +887,9 @@ function showResults(prods) {
   window._sr    = prods;
   if (!prods.length) { hint.textContent = 'Keine Ergebnisse.'; results.innerHTML = ''; return; }
   hint.textContent = '';
+  // Scrollposition des Sheets merken & wiederherstellen → kein Sprung
+  const body = document.querySelector('#ov-search .sheet-body');
+  const top  = body ? body.scrollTop : 0;
   results.innerHTML = prods.map((p, i) => {
     const name  = p.product_name_de || p.product_name || 'Unbekannt';
     const brand = p.brands || '';
@@ -869,6 +900,7 @@ function showResults(prods) {
       <div class="ri-kcal">${kcal} kcal / 100 g</div>
     </div>`;
   }).join('');
+  if (body) body.scrollTop = top; // Scroll-Position halten
 }
 
 function pickResult(i) {
