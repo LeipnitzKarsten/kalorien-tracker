@@ -978,6 +978,23 @@ async function doSearch(q) {
       prods = byRelevance(dedupe(world), q);
     }
 
+    // ── Runde 3: Nur Hauptwort, wenn Mehrwort-Suche leer bleibt ─────────────
+    // "gekochte Kartoffeln" → Hauptwort = "Kartoffeln" → stem → "kartoffel"
+    // Nötig, weil OFF alle Suchbegriffe als AND verknüpft
+    if (!prods.length && q.includes(' ')) {
+      const qWords = q.split(/\s+/);
+      // Deutsches Substantiv = großgeschriebenes Wort; nehme das letzte davon
+      const nouns = qWords.filter(w => /^[A-ZÄÖÜ]/.test(w));
+      const mainWord = stem((nouns.length ? nouns[nouns.length - 1] : qWords[qWords.length - 1]).toLowerCase());
+      const encMain = enc(mainWord);
+      const byMain = await tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encMain}&tagtype_0=countries&tag_contains_0=contains&tag_0=germany&${SORT}&json=1&page_size=40&fields=${FIELDS}`);
+      prods = byRelevance(dedupe(byMain), q);
+      if (!prods.length) {
+        const byMainW = await tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encMain}&${SORT}&json=1&page_size=50&fields=${FIELDS}`);
+        prods = byRelevance(dedupe(byMainW), q);
+      }
+    }
+
     searchCache[q] = prods;
     showResults(prods);
   } catch (e) {
