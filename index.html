@@ -698,6 +698,33 @@ function scSet(q, prods) {
   } catch {} // QuotaExceeded → ignorieren
 }
 
+// Sofort-Treffer aus dem Verlauf (kt_recent) – 0ms, keine API nötig
+// Yazio-Effekt: eigene Produkte erscheinen sofort beim Tippen
+function recentMatches(q) {
+  const ql = q.toLowerCase();
+  try {
+    const recent = JSON.parse(localStorage.getItem('kt_recent') || '[]');
+    return recent
+      .filter(p => {
+        const n = (p.name  || '').toLowerCase();
+        const b = (p.brand || '').toLowerCase();
+        return n.includes(ql) || b.includes(ql);
+      })
+      .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
+      .slice(0, 8)
+      .map(p => ({
+        product_name_de: p.name,
+        brands:          p.brand,
+        nutriments: {
+          'energy-kcal_100g':   p.kp   || 0,
+          'carbohydrates_100g': p.khp  || 0,
+          'proteins_100g':      p.ewp  || 0,
+          'fat_100g':           p.fatp || 0,
+        }
+      }));
+  } catch { return []; }
+}
+
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function dateStr(d) { return d.toISOString().split('T')[0]; }
 
@@ -894,20 +921,25 @@ function onSearch(val) {
   }
   document.getElementById('recent-wrap').style.display = 'none';
 
-  // ── Cache-Treffer → sofort anzeigen (Stale-While-Revalidate) ─────────────
+  // ── Stufe 1: Verlauf (kt_recent) – sofort, 0ms, keine API ────────────────
+  const rHits = recentMatches(q);
+  if (rHits.length) showResults(rHits);
+
+  // ── Stufe 2: Persistenter Cache → sofort + stille Hintergrund-Aktualisierung
   const cached = scGet(q) || searchCache[q];
   if (cached) {
-    showResults(cached);
-    // Im Hintergrund still aktualisieren (ohne Ladeindikator)
+    showResults(cached); // überschreibt Verlaufs-Treffer mit vollständiger Liste
     searchTimer = setTimeout(() => doSearch(q, true), 800);
     return;
   }
 
-  // ── Kein Cache → API-Suche mit Ladeindikator ─────────────────────────────
-  const sh = document.getElementById('search-hint');
-  sh.textContent = 'Suche…';
-  sh.style.display = 'block';
-  searchTimer = setTimeout(() => doSearch(q, false), 350);
+  // ── Stufe 3: API-Suche – Ladeindikator nur wenn noch nichts angezeigt ────
+  if (!rHits.length) {
+    const sh = document.getElementById('search-hint');
+    sh.textContent = 'Suche…';
+    sh.style.display = 'block';
+  }
+  searchTimer = setTimeout(() => doSearch(q, false), 300);
 }
 
 // Filtert nicht-lateinische Zeichen (Arabisch, Hindi, Chinesisch usw.)
