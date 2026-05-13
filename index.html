@@ -1610,6 +1610,62 @@ render();
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// ── Hintergrund-Preloading ────────────────────────────────────────────────────
+// Einmalig beim ersten Start: ~40 häufige deutsche Suchen vorab cachen
+// Danach alles sofort – kein Warten mehr
+const PRECACHE_TERMS = [
+  // Marken
+  'alpro','danone','müller','ehrmann','alnatura','rewe bio','barilla',
+  'dr oetker','iglo','knorr','maggi','ja!','gut günstig','oatly',
+  'followfood','volvic','gerolsteiner','weihenstephan','bauer','andechser',
+  // Milchprodukte
+  'joghurt','naturjoghurt','skyr','quark','frischkäse','mozzarella',
+  'gouda','buttermilch','proteinjoghurt','griechischer joghurt',
+  // Getreide & Frühstück
+  'hafermilch','haferflocken','müsli','granola','cornflakes','porridge',
+  // Protein & Sport
+  'protein','whey protein','proteinriegel','hüttenkäse','magerquark',
+  // Fleisch & Fisch
+  'hähnchenbrust','lachs','thunfisch','garnelen','tofu','tempeh',
+  // Snacks & Sonstiges
+  'proteinbrot','vollkornbrot','reisbrot','nussriegel','mandeln','walnüsse'
+];
+
+async function prewarmCache() {
+  if (localStorage.getItem('kt_pw') === '1') return; // schon erledigt
+  if (!navigator.onLine) return;
+
+  const FIELDS = 'product_name,product_name_de,brands,nutriments,stores';
+  const SORT   = 'sort_by=unique_scans_n';
+  const enc    = encodeURIComponent;
+
+  const fetchTerm = async (term) => {
+    if (scGet(term)) return; // schon gecacht
+    try {
+      const qs = stemQuery(term);
+      const [byDE, byRewe] = await Promise.all([
+        fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(qs)}&tagtype_0=countries&tag_contains_0=contains&tag_0=germany&${SORT}&json=1&page_size=30&fields=${FIELDS}`)
+          .then(r => r.ok ? r.json() : {}).then(j => (j.products||[]).filter(isUsable)).catch(()=>[]),
+        fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(qs)}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
+          .then(r => r.ok ? r.json() : {}).then(j => (j.products||[]).filter(isUsable)).catch(()=>[])
+      ]);
+      const prods = byRelevance(dedupe([...byRewe, ...byDE]), term);
+      if (prods.length) scSet(term, prods);
+    } catch {}
+  };
+
+  // In 3er-Batches laden, 800ms Pause dazwischen – unsichtbar im Hintergrund
+  const toLoad = PRECACHE_TERMS.filter(t => !scGet(t));
+  for (let i = 0; i < toLoad.length; i += 3) {
+    await Promise.all(toLoad.slice(i, i + 3).map(fetchTerm));
+    if (i + 3 < toLoad.length) await new Promise(r => setTimeout(r, 800));
+  }
+  localStorage.setItem('kt_pw', '1');
+}
+
+// 4 Sekunden nach App-Start beginnen (damit Startup nicht gebremst wird)
+setTimeout(prewarmCache, 4000);
 </script>
 </body>
 </html>
