@@ -879,9 +879,9 @@ function hasNonLatin(str) {
 // Damit OFF-Suche auch bei Plural-Eingabe Treffer liefert
 function stem(w) {
   if (w.length < 5) return w;
-  if (w.endsWith('en')) return w.slice(0, -2); // Tomaten→Tomat, Bohnen→Bohne
-  if (w.endsWith('n'))  return w.slice(0, -1);  // Kartoffeln→Kartoffel
+  if (w.endsWith('n'))  return w.slice(0, -1);  // Kartoffeln→Kartoffel, Nudeln→Nudel
   if (w.endsWith('s') && w.length >= 6) return w.slice(0, -1); // Joghurts→Joghurt
+  if (w.endsWith('e') && w.length >= 8) return w.slice(0, -1); // gekochte→gekocht, gebratene→gebraten
   return w;
 }
 
