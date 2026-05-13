@@ -260,11 +260,16 @@
       display: flex; align-items: center; justify-content: center;
     }
     .sheet-body { overflow-y: auto; flex: 1; }
-    /* Suchergebnis-Bereich: feste Höhe, scrollt intern */
+    /* Such-Sheet: feste Höhe – Sheet springt NICHT wenn Ergebnisse kommen */
+    #ov-search .sheet {
+      height: 78dvh;
+    }
     #ov-search .sheet-body {
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      flex: 1;
+      min-height: 0;
     }
     .results-area {
       flex: 1;
@@ -834,7 +839,9 @@ function closeSearch() {
   document.getElementById('search-inp').value = '';
   document.getElementById('results').innerHTML = '';
   document.getElementById('recent-wrap').style.display = 'none';
-  document.getElementById('search-hint').textContent = 'Suchbegriff eingeben oder Barcode scannen';
+  const hint = document.getElementById('search-hint');
+  hint.textContent = 'Suchbegriff eingeben oder Barcode scannen';
+  hint.style.display = 'block';
   window._sr = [];
 }
 
@@ -846,12 +853,16 @@ function onSearch(val) {
   const q = val.trim();
   if (q.length < 2) {
     document.getElementById('results').innerHTML = '';
-    document.getElementById('search-hint').textContent = 'Suchbegriff eingeben oder Barcode scannen';
+    const h = document.getElementById('search-hint');
+    h.textContent = 'Suchbegriff eingeben oder Barcode scannen';
+    h.style.display = 'block';
     renderRecent();
     return;
   }
   document.getElementById('recent-wrap').style.display = 'none';
-  document.getElementById('search-hint').textContent = 'Suche…';
+  const sh = document.getElementById('search-hint');
+  sh.textContent = 'Suche…';
+  sh.style.display = 'block';
   // Ergebnisse NICHT leeren – verhindert Sprung der Liste
   if (searchCache[q]) { showResults(searchCache[q]); return; }
   searchTimer = setTimeout(() => doSearch(q), 650);
@@ -951,8 +962,13 @@ function showResults(prods) {
   const hint    = document.getElementById('search-hint');
   const results = document.getElementById('results');
   window._sr    = prods;
-  if (!prods.length) { hint.textContent = 'Keine Ergebnisse.'; results.innerHTML = ''; return; }
-  hint.textContent = '';
+  if (!prods.length) {
+    hint.textContent = 'Keine Ergebnisse.';
+    hint.style.display = 'block';
+    results.innerHTML = '';
+    return;
+  }
+  hint.style.display = 'none'; // kein leerer Abstand über den Ergebnissen
   // results-area scrollt intern → kein externer Scroll-Sprung
   results.innerHTML = prods.map((p, i) => {
     const name  = p.product_name_de || p.product_name || 'Unbekannt';
