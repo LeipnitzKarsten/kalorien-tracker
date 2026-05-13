@@ -264,6 +264,18 @@
       display: flex; align-items: center; justify-content: center;
     }
     .sheet-body { overflow-y: auto; flex: 1; }
+    /* Suchergebnis-Bereich: feste Höhe, scrollt intern */
+    #ov-search .sheet-body {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .results-area {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      min-height: 0;
+    }
 
     /* ── Search ── */
     .search-row { display: flex; gap: 10px; margin-bottom: 12px; }
@@ -570,8 +582,10 @@
         <div class="recent-list" id="recent-list"></div>
         <div class="recent-divider"></div>
       </div>
-      <div class="search-hint" id="search-hint">Suchbegriff eingeben oder Barcode scannen</div>
-      <div class="results" id="results"></div>
+      <div class="results-area">
+        <div class="search-hint" id="search-hint">Suchbegriff eingeben oder Barcode scannen</div>
+        <div class="results" id="results"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -847,6 +861,22 @@ function onSearch(val) {
   searchTimer = setTimeout(() => doSearch(q), 650);
 }
 
+// Filtert und sortiert nach Relevanz: Produkte wo Suchbegriff im Namen/Marke vorkommt
+function byRelevance(prods, query) {
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+  if (!words.length) return prods;
+  return prods
+    .map(p => {
+      const text = [p.product_name_de, p.product_name, p.brands]
+        .filter(Boolean).join(' ').toLowerCase();
+      const hits = words.filter(w => text.includes(w)).length;
+      return { p, hits };
+    })
+    .filter(({ hits }) => hits > 0)           // mind. ein Wort muss passen
+    .sort((a, b) => b.hits - a.hits)          // mehr Treffer = weiter oben
+    .map(({ p }) => p);
+}
+
 async function doSearch(q) {
   const ctrl = new AbortController();
   searchAbort = ctrl;
@@ -860,24 +890,29 @@ async function doSearch(q) {
   };
 
   try {
-    // Versuch 1: weltweite Suche, kein Länderfilter
-    let prods = await tryFetch(
-      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=1&page_size=20&fields=${FIELDS}`
+    // Mehr Ergebnisse holen (40), nach Beliebtheit sortiert, dann client-seitig filtern
+    let raw = await tryFetch(
+      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=1&page_size=40&sort_by=unique_scans_n&fields=${FIELDS}`
     );
 
-    // Versuch 2: v2-API als Fallback wenn leer
+    let prods = byRelevance(raw, q);
+
+    // Fallback: v2-API wenn Relevanzfilter alles rauswirft
     if (!prods.length) {
-      prods = await tryFetch(
-        `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(q)}&page_size=20&fields=${FIELDS}`
+      raw = await tryFetch(
+        `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(q)}&page_size=40&sort_by=unique_scans_n&fields=${FIELDS}`
       );
+      prods = byRelevance(raw, q);
     }
+
+    // Letzter Fallback: ungefiltert zeigen (zumindest irgendwas)
+    if (!prods.length && raw.length) prods = raw.slice(0, 15);
 
     searchCache[q] = prods;
     showResults(prods);
   } catch (e) {
-    if (e.name === 'AbortError') return; // ignorieren – neuer Suchbegriff
+    if (e.name === 'AbortError') return;
     document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
-    document.getElementById('results').innerHTML = '';
   }
 }
 
@@ -887,9 +922,7 @@ function showResults(prods) {
   window._sr    = prods;
   if (!prods.length) { hint.textContent = 'Keine Ergebnisse.'; results.innerHTML = ''; return; }
   hint.textContent = '';
-  // Scrollposition des Sheets merken & wiederherstellen → kein Sprung
-  const body = document.querySelector('#ov-search .sheet-body');
-  const top  = body ? body.scrollTop : 0;
+  // results-area scrollt intern → kein externer Scroll-Sprung
   results.innerHTML = prods.map((p, i) => {
     const name  = p.product_name_de || p.product_name || 'Unbekannt';
     const brand = p.brands || '';
@@ -900,7 +933,6 @@ function showResults(prods) {
       <div class="ri-kcal">${kcal} kcal / 100 g</div>
     </div>`;
   }).join('');
-  if (body) body.scrollTop = top; // Scroll-Position halten
 }
 
 function pickResult(i) {
