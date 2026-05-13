@@ -560,10 +560,12 @@
     </div>
     <div class="sheet-body">
       <div class="search-row">
-        <input class="search-inp" id="search-inp" type="search"
+        <input class="search-inp" id="search-inp" type="text"
           placeholder="z.B. Alpro, Joghurt, Brot…"
-          autocomplete="off" autocorrect="off" spellcheck="false"
-          oninput="onSearch(this.value)"/>
+          autocomplete="off" autocorrect="off" autocapitalize="none"
+          spellcheck="false" enterkeyhint="search"
+          oninput="onSearch(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();clearTimeout(searchTimer);const q=this.value.trim();if(q.length>=2)doSearch(q);}"/>
         <button class="barcode-btn" onclick="openBarcode()" title="Barcode scannen">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="white">
             <rect x="0"  y="2" width="2" height="18"/>
@@ -865,12 +867,27 @@ function onSearch(val) {
   sh.style.display = 'block';
   // Ergebnisse NICHT leeren – verhindert Sprung der Liste
   if (searchCache[q]) { showResults(searchCache[q]); return; }
-  searchTimer = setTimeout(() => doSearch(q), 650);
+  searchTimer = setTimeout(() => doSearch(q), 350);
 }
 
 // Filtert nicht-lateinische Zeichen (Arabisch, Hindi, Chinesisch usw.)
 function hasNonLatin(str) {
   return /[^\u0000-\u024F\u1E00-\u1EFF\s\d.,\-'()%&+\u00B0/]/u.test(str || '');
+}
+
+// Stammform: "Kartoffeln"→"Kartoffel", "Nudeln"→"Nudel", "Tomaten"→"Tomate"
+// Damit OFF-Suche auch bei Plural-Eingabe Treffer liefert
+function stem(w) {
+  if (w.length < 5) return w;
+  if (w.endsWith('en')) return w.slice(0, -2); // Tomaten→Tomat, Bohnen→Bohne
+  if (w.endsWith('n'))  return w.slice(0, -1);  // Kartoffeln→Kartoffel
+  if (w.endsWith('s') && w.length >= 6) return w.slice(0, -1); // Joghurts→Joghurt
+  return w;
+}
+
+// Query für API aufbereiten: Plural vereinfachen vor dem API-Call
+function stemQuery(q) {
+  return q.split(/\s+/).map(w => stem(w.toLowerCase())).join(' ');
 }
 
 // Relevanz-Score: wie gut passt das Produkt zum Suchbegriff?
@@ -880,10 +897,16 @@ function scoreProduct(p, words) {
   const stores = (p.stores || '').toLowerCase();
   let score = 0;
   for (const w of words) {
-    if (brand.includes(w))     score += 3; // Marken-Treffer zählt am meisten
-    else if (name.includes(w)) score += 1;
+    const s = stem(w);
+    const inBrand = brand.includes(w) || brand.includes(s);
+    const inName  = name.includes(w)  || name.includes(s);
+    if (inBrand) score += 4;
+    else if (inName) {
+      // Treffer am Wortanfang höher gewichten
+      score += (name.startsWith(w) || name.startsWith(s)) ? 3 : 1;
+    }
   }
-  if (stores.includes('rewe')) score += 2; // Rewe-Produkte nach oben
+  if (stores.includes('rewe')) score += 2;
   return score;
 }
 
@@ -936,17 +959,22 @@ async function doSearch(q) {
   };
 
   try {
-    // ── Runde 1: Deutschland + Rewe parallel ────────────────────────────────
+    // Stemming: "Kartoffeln" → "Kartoffel" für bessere API-Treffer
+    const qs = stemQuery(q); // ggf. gleich wie q
+    const encQ  = enc(q);
+    const encQS = enc(qs);
+
+    // ── Runde 1: Deutschland + Rewe parallel (mit Stammform) ────────────────
     const [byDE, byRewe] = await Promise.all([
-      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=countries&tag_contains_0=contains&tag_0=germany&${SORT}&json=1&page_size=40&fields=${FIELDS}`),
-      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
+      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encQS}&tagtype_0=countries&tag_contains_0=contains&tag_0=germany&${SORT}&json=1&page_size=40&fields=${FIELDS}`),
+      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encQS}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
     ]);
 
     let prods = byRelevance(dedupe([...byRewe, ...byDE]), q);
 
     // ── Runde 2: weltweit, wenn Deutschland nichts liefert ──────────────────
     if (!prods.length) {
-      const world = await tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${SORT}&json=1&page_size=50&fields=${FIELDS}`);
+      const world = await tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encQS}&${SORT}&json=1&page_size=50&fields=${FIELDS}`);
       prods = byRelevance(dedupe(world), q);
     }
 
