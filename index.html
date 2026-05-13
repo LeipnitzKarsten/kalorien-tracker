@@ -859,7 +859,7 @@ function onSearch(val) {
 
 // Filtert nicht-lateinische Zeichen (Arabisch, Hindi, Chinesisch usw.)
 function hasNonLatin(str) {
-  return /[^ -ɏḀ-ỿ\s\d.,\-'()%&+°/]/u.test(str || '');
+  return /[^\u0000-\u024F\u1E00-\u1EFF\s\d.,\-'()%&+\u00B0/]/u.test(str || '');
 }
 
 // Relevanz-Score: wie gut passt das Produkt zum Suchbegriff?
