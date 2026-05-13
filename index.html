@@ -341,6 +341,131 @@
       font-size: 17px; font-weight: 700; cursor: pointer;
     }
     .add-confirm:active { opacity: .85; }
+
+    /* ── Drum-Roller ── */
+    .drum-outer {
+      position: relative;
+      height: 220px;
+      overflow: hidden;
+      margin: 12px 0 4px;
+    }
+    .drum-scroll {
+      height: 100%;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .drum-scroll::-webkit-scrollbar { display: none; }
+    .drum-item {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--text);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .drum-item.ph { visibility: hidden; }
+    .drum-fade-top, .drum-fade-bot {
+      position: absolute;
+      left: 0; right: 0;
+      height: 88px;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .drum-fade-top {
+      top: 0;
+      background: linear-gradient(to bottom, var(--card) 10%, transparent 100%);
+    }
+    .drum-fade-bot {
+      bottom: 0;
+      background: linear-gradient(to top, var(--card) 10%, transparent 100%);
+    }
+    .drum-line-top, .drum-line-bot {
+      position: absolute;
+      left: 20px; right: 20px;
+      height: 1px;
+      background: #ccc;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .drum-line-top { top: 88px; }
+    .drum-line-bot { bottom: 88px; }
+    .drum-unit-label {
+      position: absolute;
+      right: 36px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 16px;
+      color: var(--muted);
+      font-weight: 600;
+      z-index: 4;
+    }
+    .manual-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin: 4px 0 14px;
+    }
+    .manual-inp {
+      width: 110px;
+      padding: 7px 10px;
+      border: 1.5px solid var(--ring-bg);
+      border-radius: 10px;
+      font-size: 17px;
+      font-weight: 600;
+      text-align: center;
+      outline: none;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .manual-inp:focus { border-color: var(--green); background: white; }
+    .manual-unit { font-size: 14px; color: var(--muted); }
+
+    /* ── Zuletzt / Häufig verwendet ── */
+    .recent-hdr {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 8px;
+    }
+    .recent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .recent-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border-radius: 10px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .recent-item:active { background: var(--green-pale); }
+    .ri-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green-light);
+      flex-shrink: 0;
+    }
+    .ri-name { font-size: 14px; font-weight: 600; flex: 1; min-width: 0;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ri-kcal { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+    .recent-divider {
+      height: 1px;
+      background: var(--ring-bg);
+      margin: 4px 0 14px;
+    }
   </style>
 </head>
 <body>
@@ -439,6 +564,12 @@
           </svg>
         </button>
       </div>
+      <!-- Häufig verwendet (nur ohne Suchquery sichtbar) -->
+      <div id="recent-wrap" style="display:none">
+        <div class="recent-hdr">Häufig verwendet</div>
+        <div class="recent-list" id="recent-list"></div>
+        <div class="recent-divider"></div>
+      </div>
       <div class="search-hint" id="search-hint">Suchbegriff eingeben oder Barcode scannen</div>
       <div class="results" id="results"></div>
     </div>
@@ -480,10 +611,21 @@
         </div>
         <div class="per100-lbl">pro 100 g/ml</div>
       </div>
-      <div class="amount-row">
-        <input class="amount-inp" id="amount-inp" type="number"
-          value="100" min="1" max="9999" oninput="previewAmount()"/>
-        <span class="amount-unit" id="amount-unit">g</span>
+      <!-- Drum-Roller -->
+      <div class="drum-outer">
+        <div class="drum-fade-top"></div>
+        <div class="drum-fade-bot"></div>
+        <div class="drum-line-top"></div>
+        <div class="drum-line-bot"></div>
+        <div class="drum-scroll" id="drum-scroll"></div>
+        <div class="drum-unit-label" id="drum-unit-lbl">g</div>
+      </div>
+      <!-- Manuelles Eingabefeld (synchronisiert mit Roller) -->
+      <div class="manual-row">
+        <input class="manual-inp" id="amount-inp" type="number"
+          value="100" min="1" max="9999" inputmode="decimal"
+          oninput="onManualInput()"/>
+        <span class="manual-unit" id="amount-unit">g</span>
       </div>
       <div class="amount-preview">
         <div class="big" id="prev-kcal">0</div>
@@ -671,6 +813,7 @@ function doDelete(id) {
 // ── Search overlay ───────────────────────────────────────────────────────────
 function openSearch() {
   document.getElementById('ov-search').classList.add('open');
+  renderRecent();
   setTimeout(() => document.getElementById('search-inp').focus(), 320);
 }
 function closeSearch() {
@@ -687,8 +830,10 @@ function onSearch(val) {
   if (q.length < 2) {
     document.getElementById('results').innerHTML = '';
     document.getElementById('search-hint').textContent = 'Suchbegriff eingeben oder Barcode scannen';
+    renderRecent();
     return;
   }
+  document.getElementById('recent-wrap').style.display = 'none';
   document.getElementById('search-hint').textContent = 'Suche…';
   document.getElementById('results').innerHTML = '';
   if (searchCache[q]) { showResults(searchCache[q]); return; }
@@ -804,11 +949,13 @@ function openAmount(prod) {
   document.getElementById('ap-kh').textContent    = r1(prod.khp) + 'g ';
   document.getElementById('ap-ew').textContent    = r1(prod.ewp) + 'g ';
   document.getElementById('ap-fat').textContent   = r1(prod.fatp) + 'g ';
-  document.getElementById('amount-unit').textContent = prod.unit;
-  document.getElementById('amount-inp').value     = 100;
+  document.getElementById('amount-unit').textContent    = prod.unit;
+  document.getElementById('drum-unit-lbl').textContent  = prod.unit;
+  document.getElementById('amount-inp').value            = 100;
   previewAmount();
   document.getElementById('ov-amount').classList.add('open');
-  setTimeout(() => { const i = document.getElementById('amount-inp'); i.focus(); i.select(); }, 300);
+  // Drum nach dem Öffnen bauen (Sheet-Animation abwarten)
+  setTimeout(() => buildDrum(100), 50);
 }
 function closeAmount() {
   document.getElementById('ov-amount').classList.remove('open');
@@ -834,8 +981,116 @@ function confirmAdd() {
     kcal: r1(curProduct.kp * f), kh: r1(curProduct.khp * f),
     ew:   r1(curProduct.ewp * f), fat: r1(curProduct.fatp * f),
   });
+  saveToRecent(curProduct);  // In Favoriten merken
   closeAmount();
   render();
+}
+
+// ── Drum-Picker ──────────────────────────────────────────────────────────────
+let drumTimer = null;
+
+function buildDrum(initVal) {
+  const scroll = document.getElementById('drum-scroll');
+  scroll.innerHTML = '';
+
+  // 2 unsichtbare Platzhalter oben (damit Wert 1 zentriert erscheint)
+  for (let i = 0; i < 2; i++) {
+    const el = document.createElement('div');
+    el.className = 'drum-item ph';
+    scroll.appendChild(el);
+  }
+  // Werte 1–500
+  for (let v = 1; v <= 500; v++) {
+    const el = document.createElement('div');
+    el.className = 'drum-item';
+    el.textContent = v;
+    el.style.scrollSnapAlign = 'center';
+    scroll.appendChild(el);
+  }
+  // 2 unsichtbare Platzhalter unten
+  for (let i = 0; i < 2; i++) {
+    const el = document.createElement('div');
+    el.className = 'drum-item ph';
+    scroll.appendChild(el);
+  }
+
+  // Zum Startwert scrollen (ohne Animation)
+  const v = Math.max(1, Math.min(500, Math.round(initVal) || 100));
+  scroll.scrollTop = (v - 1) * 44;
+
+  scroll.addEventListener('scroll', onDrumScroll, { passive: true });
+}
+
+function onDrumScroll() {
+  clearTimeout(drumTimer);
+  drumTimer = setTimeout(() => {
+    const v = getDrumValue();
+    const inp = document.getElementById('amount-inp');
+    if (parseInt(inp.value) !== v) inp.value = v;
+    previewAmount();
+  }, 60);
+}
+
+function getDrumValue() {
+  const scroll = document.getElementById('drum-scroll');
+  return Math.max(1, Math.min(500, Math.round(scroll.scrollTop / 44) + 1));
+}
+
+function onManualInput() {
+  const v = parseInt(document.getElementById('amount-inp').value);
+  if (v >= 1 && v <= 500) {
+    document.getElementById('drum-scroll').scrollTop = (v - 1) * 44;
+  }
+  previewAmount();
+}
+
+// ── Häufig verwendet ─────────────────────────────────────────────────────────
+function loadRecent() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('kt_recent') || '[]');
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 6);
+    const co = dateStr(cutoff);
+    return raw.filter(p => (p.lastUsed || '') >= co);
+  } catch { return []; }
+}
+
+function saveToRecent(product) {
+  let recent = loadRecent();
+  const key = product.name + '||' + (product.brand || '');
+  const ex = recent.find(p => (p.name + '||' + (p.brand || '')) === key);
+  if (ex) {
+    ex.useCount = (ex.useCount || 0) + 1;
+    ex.lastUsed = dateStr(new Date());
+  } else {
+    recent.push({ ...product, useCount: 1, lastUsed: dateStr(new Date()) });
+  }
+  recent.sort((a, b) => (b.useCount - a.useCount) || b.lastUsed.localeCompare(a.lastUsed));
+  recent = recent.slice(0, 50);
+  localStorage.setItem('kt_recent', JSON.stringify(recent));
+}
+
+function renderRecent() {
+  const wrap = document.getElementById('recent-wrap');
+  const list = document.getElementById('recent-list');
+  const items = loadRecent();
+  if (!items.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  window._recent = items;
+  list.innerHTML = items.slice(0, 8).map((p, i) => `
+    <div class="recent-item" onclick="pickRecent(${i})">
+      <div class="ri-dot"></div>
+      <div class="ri-name">${p.name}${p.brand ? ' · ' + p.brand : ''}</div>
+      <div class="ri-kcal">${Math.round(p.kp)} kcal/100g</div>
+    </div>
+  `).join('');
+}
+
+function pickRecent(i) {
+  const p = (window._recent || [])[i];
+  if (!p) return;
+  closeSearch();
+  openAmount(p);
 }
 
 // ── Backdrop close ───────────────────────────────────────────────────────────
