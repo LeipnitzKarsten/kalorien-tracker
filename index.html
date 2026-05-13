@@ -870,12 +870,13 @@ function hasNonLatin(str) {
 function scoreProduct(p, words) {
   const name   = (p.product_name_de || p.product_name || '').toLowerCase();
   const brand  = (p.brands || '').toLowerCase();
-  const text   = name + ' ' + brand;
+  const stores = (p.stores || '').toLowerCase();
   let score = 0;
   for (const w of words) {
-    if (brand.includes(w))  score += 3;  // Marken-Treffer zählt mehr
+    if (brand.includes(w))     score += 3; // Marken-Treffer zählt am meisten
     else if (name.includes(w)) score += 1;
   }
+  if (stores.includes('rewe')) score += 2; // Rewe-Produkte nach oben
   return score;
 }
 
@@ -909,7 +910,7 @@ async function doSearch(q) {
   const ctrl = new AbortController();
   searchAbort = ctrl;
   const sig    = ctrl.signal;
-  const FIELDS = 'product_name,product_name_de,brands,nutriments';
+  const FIELDS = 'product_name,product_name_de,brands,nutriments,stores';
   const SORT   = 'sort_by=unique_scans_n';
   const DE     = 'countries_tags=en:germany';
   const enc    = encodeURIComponent;
@@ -922,13 +923,14 @@ async function doSearch(q) {
   };
 
   try {
-    // ── Runde 1: Deutschland, Marken-Suche + Volltext parallel ──────────────
-    const [byBrand, byText] = await Promise.all([
-      get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${DE}&${SORT}&json=1&page_size=30&fields=${FIELDS}`),
-      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${DE}&${SORT}&json=1&page_size=30&fields=${FIELDS}`)
+    // ── Runde 1: Deutschland + Rewe-gezielt, drei Anfragen parallel ─────────
+    const [byBrand, byText, byRewe] = await Promise.all([
+      get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${DE}&${SORT}&json=1&page_size=25&fields=${FIELDS}`),
+      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${DE}&${SORT}&json=1&page_size=25&fields=${FIELDS}`),
+      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
     ]);
 
-    let prods = byRelevance(dedupe([...byBrand, ...byText]), q);
+    let prods = byRelevance(dedupe([...byRewe, ...byBrand, ...byText]), q);
 
     // ── Runde 2: weltweit, wenn Deutschland nichts liefert ──────────────────
     if (!prods.length) {
