@@ -565,7 +565,7 @@
           autocomplete="off" autocorrect="off" autocapitalize="none"
           spellcheck="false" enterkeyhint="search"
           oninput="onSearch(this.value)"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();clearTimeout(searchTimer);const q=this.value.trim();if(q.length>=2)doSearch(q);}"/>
+          onkeydown="if(event.key==='Enter'){event.preventDefault();clearTimeout(searchTimer);const q=this.value.trim();if(q.length>=2)doSearch(q,false);}"/>
         <button class="barcode-btn" onclick="openBarcode()" title="Barcode scannen">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="white">
             <rect x="0"  y="2" width="2" height="18"/>
@@ -664,8 +664,39 @@ let viewDate    = dateStr(new Date());
 let curProduct  = null;
 let searchTimer   = null;
 let scanner       = null;
-let searchCache   = {}; // query → results
+let searchCache   = {}; // query → results (In-Memory, Session)
 let searchAbort   = null; // AbortController für laufende Suche
+
+// ── Persistenter Suchcache (localStorage, 30 Tage) ───────────────────────────
+// Damit wiederholte Suchen sofort Ergebnisse zeigen (wie in Yazio)
+const SC_KEY = 'kt_sc';
+const SC_TTL = 30 * 24 * 60 * 60 * 1000; // 30 Tage in ms
+const SC_MAX = 150; // max gespeicherte Queries
+
+function scGet(q) {
+  try {
+    const c = JSON.parse(localStorage.getItem(SC_KEY) || '{}');
+    const e = c[q.toLowerCase()];
+    if (!e || Date.now() - e.ts > SC_TTL) return null;
+    return e.prods;
+  } catch { return null; }
+}
+
+function scSet(q, prods) {
+  if (!prods || !prods.length) return; // Leere Ergebnisse nicht cachen
+  try {
+    const c = JSON.parse(localStorage.getItem(SC_KEY) || '{}');
+    c[q.toLowerCase()] = { ts: Date.now(), prods };
+    const keys = Object.keys(c);
+    if (keys.length > SC_MAX) {
+      // Älteste Einträge entfernen
+      keys.sort((a, b) => c[a].ts - c[b].ts)
+          .slice(0, keys.length - SC_MAX)
+          .forEach(k => delete c[k]);
+    }
+    localStorage.setItem(SC_KEY, JSON.stringify(c));
+  } catch {} // QuotaExceeded → ignorieren
+}
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function dateStr(d) { return d.toISOString().split('T')[0]; }
@@ -862,12 +893,21 @@ function onSearch(val) {
     return;
   }
   document.getElementById('recent-wrap').style.display = 'none';
+
+  // ── Cache-Treffer → sofort anzeigen (Stale-While-Revalidate) ─────────────
+  const cached = scGet(q) || searchCache[q];
+  if (cached) {
+    showResults(cached);
+    // Im Hintergrund still aktualisieren (ohne Ladeindikator)
+    searchTimer = setTimeout(() => doSearch(q, true), 800);
+    return;
+  }
+
+  // ── Kein Cache → API-Suche mit Ladeindikator ─────────────────────────────
   const sh = document.getElementById('search-hint');
   sh.textContent = 'Suche…';
   sh.style.display = 'block';
-  // Ergebnisse NICHT leeren – verhindert Sprung der Liste
-  if (searchCache[q]) { showResults(searchCache[q]); return; }
-  searchTimer = setTimeout(() => doSearch(q), 350);
+  searchTimer = setTimeout(() => doSearch(q, false), 350);
 }
 
 // Filtert nicht-lateinische Zeichen (Arabisch, Hindi, Chinesisch usw.)
@@ -936,7 +976,7 @@ function isUsable(p) {
   return p.nutriments?.['energy-kcal_100g'] != null && !hasNonLatin(name);
 }
 
-async function doSearch(q) {
+async function doSearch(q, bgUpdate = false) {
   const ctrl = new AbortController();
   searchAbort = ctrl;
   const sig    = ctrl.signal;
@@ -996,10 +1036,20 @@ async function doSearch(q) {
     }
 
     searchCache[q] = prods;
-    showResults(prods);
+    scSet(q, prods); // Persistent cachen für nächste Session
+
+    // Nur anzeigen wenn das Eingabefeld noch denselben Begriff hat
+    const currentQ = document.getElementById('search-inp').value.trim();
+    if (currentQ === q) {
+      if (!bgUpdate || prods.length) {
+        showResults(prods); // Vordergrund: immer. Hintergrund: nur wenn Ergebnisse
+      }
+    }
   } catch (e) {
     if (e.name === 'AbortError') return;
-    document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
+    if (!bgUpdate) {
+      document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
+    }
   }
 }
 
