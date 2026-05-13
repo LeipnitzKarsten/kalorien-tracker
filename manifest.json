@@ -1,0 +1,12 @@
+{
+  "name": "Kalorien Tracker",
+  "short_name": "Kalorien",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F0F5F1",
+  "theme_color": "#2D6A4F",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
