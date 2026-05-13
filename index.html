@@ -908,33 +908,35 @@ async function doSearch(q) {
   const sig    = ctrl.signal;
   const FIELDS = 'product_name,product_name_de,brands,nutriments,stores';
   const SORT   = 'sort_by=unique_scans_n';
-  const DE     = 'countries_tags=en:germany';
   const enc    = encodeURIComponent;
-  const first  = enc(q.split(/\s+/)[0]); // erstes Wort (oft die Marke)
 
-  const get = async (url) => {
-    const r = await fetch(url, { signal: sig });
-    if (!r.ok) throw new Error(r.status);
-    return ((await r.json()).products || []).filter(isUsable);
+  // Einzelne Anfrage – fängt Fehler still ab, gibt [] zurück
+  // Nur AbortError wird weitergereicht
+  const tryGet = async (url) => {
+    try {
+      const r = await fetch(url, { signal: sig });
+      if (!r.ok) return [];
+      const j = await r.json();
+      return (j.products || []).filter(isUsable);
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      return []; // JSON-Fehler, HTTP-Fehler, Timeout → leer, kein Crash
+    }
   };
 
   try {
-    // ── Runde 1: Deutschland + Rewe-gezielt, drei Anfragen parallel ─────────
-    const [byBrand, byText, byRewe] = await Promise.all([
-      get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${DE}&${SORT}&json=1&page_size=25&fields=${FIELDS}`),
-      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${DE}&${SORT}&json=1&page_size=25&fields=${FIELDS}`),
-      get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
+    // ── Runde 1: Deutschland + Rewe parallel ────────────────────────────────
+    const [byDE, byRewe] = await Promise.all([
+      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=countries&tag_contains_0=contains&tag_0=germany&${SORT}&json=1&page_size=40&fields=${FIELDS}`),
+      tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&tagtype_0=stores&tag_contains_0=contains&tag_0=rewe&${SORT}&json=1&page_size=20&fields=${FIELDS}`)
     ]);
 
-    let prods = byRelevance(dedupe([...byRewe, ...byBrand, ...byText]), q);
+    let prods = byRelevance(dedupe([...byRewe, ...byDE]), q);
 
     // ── Runde 2: weltweit, wenn Deutschland nichts liefert ──────────────────
     if (!prods.length) {
-      const [wb, wt] = await Promise.all([
-        get(`https://world.openfoodfacts.org/cgi/search.pl?tagtype_0=brands&tag_contains_0=contains&tag_0=${first}&${SORT}&json=1&page_size=30&fields=${FIELDS}`),
-        get(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${SORT}&json=1&page_size=30&fields=${FIELDS}`)
-      ]);
-      prods = byRelevance(dedupe([...wb, ...wt]), q);
+      const world = await tryGet(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${enc(q)}&${SORT}&json=1&page_size=50&fields=${FIELDS}`);
+      prods = byRelevance(dedupe(world), q);
     }
 
     searchCache[q] = prods;
