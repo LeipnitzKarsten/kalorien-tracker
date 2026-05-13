@@ -1,4 +1,4 @@
-const CACHE = 'kalorien-v1';
+const CACHE = 'kalorien-v3';
 const FILES = ['./index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', e => {

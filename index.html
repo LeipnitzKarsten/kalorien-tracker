@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
 
     :root {
       --green:       #2D6A4F;
@@ -197,22 +197,18 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      pointer-events: none;
+      /* KEIN pointer-events:none hier – iOS Safari ignoriert das beim Kind */
     }
-    /* Ghost: unsichtbarer Block unter dem Button –
-       deckt die Safari-Menüleiste ab und schiebt
-       den echten Button nach oben */
     .fab-ghost {
       width: 100%;
       height: calc(var(--safe-bottom) + 60px);
       background: var(--bg);
-      pointer-events: none;
+      pointer-events: none; /* nur der Ghost schluckt keine Klicks */
       flex-shrink: 0;
     }
     .fab {
-      pointer-events: all;
       position: relative;
-      z-index: 1;        /* liegt vor dem Ghost → Schatten sichtbar */
+      z-index: 1;
       margin-bottom: 12px;
       background: var(--green); color: #fff;
       border: none; border-radius: 28px;
