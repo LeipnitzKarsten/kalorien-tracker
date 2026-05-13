@@ -306,6 +306,52 @@
     .ri-name { font-size: 15px; font-weight: 600; }
     .ri-brand { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .ri-kcal { font-size: 12px; color: var(--green); margin-top: 4px; }
+    .ri-local { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+    /* ── Manuelle Eingabe ── */
+    #manual-section {
+      border-top: 1px solid #ececec;
+      padding: 10px 16px 12px;
+      flex-shrink: 0;
+    }
+    .manual-trigger {
+      background: none; border: none; width: 100%;
+      color: var(--muted); font-size: 13px; padding: 4px 0;
+      cursor: pointer; text-align: center;
+    }
+    .manual-trigger:active { opacity: .6; }
+    .manual-form-inner { padding-top: 8px; }
+    .manual-inp {
+      width: 100%; box-sizing: border-box;
+      border: 1.5px solid #ddd; border-radius: 10px;
+      padding: 10px 12px; font-size: 15px;
+      margin-bottom: 10px; outline: none;
+      font-family: inherit;
+    }
+    .manual-inp:focus { border-color: var(--green); }
+    .manual-note { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .manual-fields {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 14px;
+    }
+    .mf label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+    .mf input {
+      width: 100%; box-sizing: border-box;
+      border: 1.5px solid #ddd; border-radius: 8px;
+      padding: 8px 10px; font-size: 15px; outline: none;
+      font-family: inherit;
+    }
+    .mf input:focus { border-color: var(--green); }
+    .manual-btns { display: flex; gap: 8px; }
+    .btn-cancel-m {
+      flex: 1; padding: 11px; border: 1.5px solid #ddd;
+      border-radius: 12px; background: none; font-size: 14px; cursor: pointer;
+    }
+    .btn-add-m {
+      flex: 2; padding: 11px; border: none;
+      border-radius: 12px; background: var(--green);
+      color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
 
     /* ── Barcode scanner ── */
     #qr-reader {
@@ -589,6 +635,26 @@
         <div class="search-hint" id="search-hint">Suchbegriff eingeben oder Barcode scannen</div>
         <div class="results" id="results"></div>
       </div>
+      <!-- Manueller Eintrag: immer sichtbar am unteren Rand -->
+      <div id="manual-section">
+        <button class="manual-trigger" id="manual-trigger" onclick="openManual()">✏️ Manuell eingeben</button>
+        <div id="manual-form-inner" style="display:none" class="manual-form-inner">
+          <input id="m-name" class="manual-inp" type="text"
+            placeholder="Name (z.B. Apfel, Hühnerbrust…)"
+            autocorrect="off" autocapitalize="sentences" spellcheck="false"/>
+          <div class="manual-note">Nährwerte pro 100 g (nur kcal ist Pflicht):</div>
+          <div class="manual-fields">
+            <div class="mf"><label>kcal *</label><input id="m-kcal" type="number" inputmode="decimal" min="0" max="900" placeholder="z.B. 52"/></div>
+            <div class="mf"><label>KH g</label><input id="m-kh"   type="number" inputmode="decimal" min="0" placeholder="14"/></div>
+            <div class="mf"><label>Eiweiß g</label><input id="m-ew"  type="number" inputmode="decimal" min="0" placeholder="0.3"/></div>
+            <div class="mf"><label>Fett g</label><input id="m-fat" type="number" inputmode="decimal" min="0" placeholder="0.2"/></div>
+          </div>
+          <div class="manual-btns">
+            <button class="btn-cancel-m" onclick="closeManual()">Abbrechen</button>
+            <button class="btn-add-m"    onclick="submitManual()">Menge wählen →</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -723,6 +789,191 @@ function recentMatches(q) {
         }
       }));
   } catch { return []; }
+}
+
+// ── Eingebaute deutsche Grundnahrungsmittel ───────────────────────────────────
+// ~110 Produkte, Werte pro 100g (Quelle: BZfE / USDA)
+// Format identisch mit Open Food Facts → funktioniert direkt mit pickResult()
+const LOCAL_FOODS = (() => {
+  const f = (name, kcal, kh, ew, fat, brand) => ({
+    product_name_de: name, brands: brand || '', _local: true,
+    nutriments: { 'energy-kcal_100g': kcal, 'carbohydrates_100g': kh,
+                  'proteins_100g': ew, 'fat_100g': fat }
+  });
+  return [
+    // ── Obst ──────────────────────────────────────────────────────────────
+    f('Apfel',                52,  14,  0.3, 0.2),
+    f('Banane',               89,  23,  1.1, 0.3),
+    f('Birne',                57,  15,  0.4, 0.1),
+    f('Erdbeeren',            32,   8,  0.7, 0.3),
+    f('Weintrauben',          69,  18,  0.7, 0.2),
+    f('Orange',               47,  12,  0.9, 0.1),
+    f('Mandarine',            53,  13,  0.8, 0.3),
+    f('Kiwi',                 61,  15,  1.1, 0.5),
+    f('Mango',                60,  15,  0.8, 0.4),
+    f('Ananas',               50,  13,  0.5, 0.1),
+    f('Blaubeeren',           57,  14,  0.7, 0.3),
+    f('Himbeeren',            52,  12,  1.2, 0.7),
+    f('Kirsche',              63,  16,  1.1, 0.2),
+    f('Pfirsich',             39,  10,  0.9, 0.3),
+    f('Pflaume',              46,  11,  0.7, 0.3),
+    f('Wassermelone',         30,   8,  0.6, 0.2),
+    f('Avocado',             160,   9,  2.0,15.0),
+    f('Grapefruit',           42,  11,  0.8, 0.1),
+    f('Zitrone',              29,   9,  1.1, 0.3),
+    f('Honigmelone',          36,   9,  0.5, 0.1),
+    // ── Gemüse ────────────────────────────────────────────────────────────
+    f('Kartoffel',            77,  17,  2.0, 0.1),
+    f('Kartoffel (gekocht)',  86,  20,  1.9, 0.1),
+    f('Süßkartoffel',         86,  20,  1.6, 0.1),
+    f('Brokkoli',             34,   7,  2.8, 0.4),
+    f('Karotte',              41,  10,  0.9, 0.2),
+    f('Tomate',               18,   4,  0.9, 0.2),
+    f('Gurke',                15,   4,  0.7, 0.1),
+    f('Paprika (rot)',         31,   6,  1.0, 0.3),
+    f('Paprika (gelb)',        27,   6,  1.0, 0.2),
+    f('Paprika (grün)',        20,   5,  0.9, 0.2),
+    f('Spinat',               23,   4,  2.9, 0.4),
+    f('Zucchini',             17,   3,  1.2, 0.3),
+    f('Zwiebel',              40,   9,  1.1, 0.1),
+    f('Blumenkohl',           25,   5,  1.9, 0.3),
+    f('Rotkohl',              31,   7,  1.4, 0.2),
+    f('Weißkohl',             25,   6,  1.3, 0.1),
+    f('Champignons',          22,   3,  3.1, 0.3),
+    f('Mais (Dose)',          86,  19,  3.0, 1.2),
+    f('Erbsen (Dose)',        84,  14,  5.4, 0.4),
+    f('Eisbergsalat',         13,   2,  1.0, 0.1),
+    f('Feldsalat',            24,   0,  2.0, 0.4),
+    f('Rote Beete',           43,  10,  1.6, 0.1),
+    f('Spargel',              20,   4,  2.2, 0.1),
+    f('Kürbis',               26,   7,  1.0, 0.1),
+    f('Lauch',                31,   7,  1.8, 0.3),
+    f('Aubergine',            25,   6,  1.0, 0.2),
+    // ── Fleisch & Fisch ───────────────────────────────────────────────────
+    f('Hühnerbrust',         110,   0, 23.0, 2.6),
+    f('Hähnchenbrust',       110,   0, 23.0, 2.6),
+    f('Hähnchenschenkel',    177,   0, 19.0,11.0),
+    f('Putenbrust',          107,   0, 24.0, 1.0),
+    f('Hackfleisch (Rind)',  246,   0, 17.0,20.0),
+    f('Hackfleisch (gemischt)',218, 0, 16.0,17.0),
+    f('Schweineschnitzel',   133,   0, 21.0, 5.0),
+    f('Lachs',               208,   0, 20.0,13.0),
+    f('Thunfisch (Dose)',    116,   0, 26.0, 1.0),
+    f('Garnelen',             99,   1, 21.0, 1.1),
+    f('Kabeljau',             82,   0, 18.0, 0.7),
+    f('Schinken (gekocht)',  107,   1, 18.0, 3.6),
+    f('Salami',              336,   2, 22.0,27.0),
+    f('Wiener Würstchen',    277,   1, 12.0,25.0),
+    f('Bratwurst',           291,   2, 13.0,26.0),
+    f('Hering',              158,   0, 18.0, 9.0),
+    // ── Milchprodukte & Eier ─────────────────────────────────────────────
+    f('Ei',                  155,   1, 13.0,11.0),
+    f('Milch (3,5%)',          64,   5,  3.4, 3.5),
+    f('Milch (1,5%)',          46,   5,  3.4, 1.5),
+    f('Joghurt (3,5%)',        66,   4,  4.0, 3.5),
+    f('Joghurt (1,5%)',        46,   5,  4.3, 1.5),
+    f('Skyr',                  57,   4, 11.0, 0.2),
+    f('Magerquark',            67,   4, 12.0, 0.3),
+    f('Quark (20%)',          116,   4, 12.0, 5.5),
+    f('Hüttenkäse',          103,   3, 11.0, 4.5),
+    f('Frischkäse',          110,   3,  9.0, 7.0),
+    f('Gouda',               356,   1, 25.0,28.0),
+    f('Mozzarella',          254,   2, 18.0,20.0),
+    f('Feta',                264,   0, 14.0,21.0),
+    f('Butter',              717,   0,  0.8,81.0),
+    f('Sahne (30%)',          293,   3,  2.4,30.0),
+    // ── Getreide & Brot ───────────────────────────────────────────────────
+    f('Haferflocken',        368,  59, 13.0, 7.0),
+    f('Vollkornbrot',        200,  37,  8.0, 1.7),
+    f('Toastbrot',           265,  49,  8.0, 3.5),
+    f('Weißbrot',            265,  49,  8.0, 3.5),
+    f('Roggenknäckebrot',    336,  71, 11.0, 2.4),
+    f('Brötchen',            289,  57,  9.0, 2.0),
+    f('Reis (roh)',           358,  78,  6.8, 0.7),
+    f('Reis (gekocht)',       130,  28,  2.7, 0.3),
+    f('Pasta (roh)',          371,  72, 13.0, 1.5),
+    f('Pasta (gekocht)',      131,  25,  5.0, 1.1),
+    f('Quinoa (gekocht)',     120,  21,  4.4, 1.9),
+    f('Couscous (gekocht)',   112,  23,  3.8, 0.2),
+    // ── Hülsenfrüchte ─────────────────────────────────────────────────────
+    f('Linsen (gekocht)',     116,  20,  9.0, 0.4),
+    f('Kichererbsen (Dose)', 164,  27,  8.9, 2.6),
+    f('Kidneybohnen (Dose)', 127,  22,  8.7, 0.5),
+    f('Schwarze Bohnen',     132,  24,  8.9, 0.5),
+    f('Edamame',             121,  10, 11.0, 5.0),
+    f('Tofu',                 76,   2,  8.0, 4.2),
+    // ── Nüsse & Samen ─────────────────────────────────────────────────────
+    f('Mandeln',             579,  22, 21.0,50.0),
+    f('Walnüsse',            654,  14, 15.0,65.0),
+    f('Cashews',             553,  30, 18.0,44.0),
+    f('Erdnüsse',            567,  16, 26.0,49.0),
+    f('Erdnussbutter',       598,  20, 25.0,50.0),
+    f('Haselnüsse',          628,  17, 15.0,61.0),
+    f('Chiasamen',           486,  42, 17.0,31.0),
+    f('Leinsamen',           534,  29, 18.0,42.0),
+    f('Kürbiskerne',         559,  11, 30.0,49.0),
+    f('Sonnenblumenkerne',   584,  20, 21.0,51.0),
+    // ── Öle & Fette ───────────────────────────────────────────────────────
+    f('Olivenöl',            884,   0,  0.0,100),
+    f('Rapsöl',              884,   0,  0.0,100),
+    f('Kokosöl',             862,   0,  0.0,100),
+    f('Sonnenblumenöl',      884,   0,  0.0,100),
+    // ── Sonstiges ─────────────────────────────────────────────────────────
+    f('Honig',               304,  82,  0.3, 0.0),
+    f('Zucker',              400, 100,  0.0, 0.0),
+    f('Hummus',              177,  14,  8.0,10.0),
+    f('Ketchup',             101,  26,  1.7, 0.1),
+    f('Mayonnaise',          680,   1,  1.1,75.0),
+    f('Haferdrink',           40,   7,  1.0, 0.8),
+    f('Sojadrink',            33,   3,  3.3, 1.8),
+    f('Mandeldrink',          13,   0,  0.5, 1.1),
+    f('Protein Pulver (Whey)',370,  10, 80.0, 4.0),
+    f('Tomatensoße',          29,   6,  1.5, 0.2),
+  ];
+})();
+
+// Suche in eingebauter Lebensmittelliste (sofort, kein Internet)
+function localMatches(q) {
+  const ql = q.toLowerCase();
+  return LOCAL_FOODS
+    .filter(p => p.product_name_de.toLowerCase().includes(ql))
+    .slice(0, 6);
+}
+
+// Dedupliziert nach Name (für Recent + Local Mix)
+function dedupeByName(prods) {
+  const seen = new Set();
+  return prods.filter(p => {
+    const key = (p.product_name_de || p.product_name || '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+// ── Manueller Eintrag ────────────────────────────────────────────────────────
+function openManual() {
+  document.getElementById('manual-trigger').style.display = 'none';
+  document.getElementById('manual-form-inner').style.display = 'block';
+  setTimeout(() => document.getElementById('m-name').focus(), 80);
+}
+function closeManual() {
+  document.getElementById('manual-form-inner').style.display = 'none';
+  document.getElementById('manual-trigger').style.display = 'block';
+  ['m-name','m-kcal','m-kh','m-ew','m-fat'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+function submitManual() {
+  const name = document.getElementById('m-name').value.trim();
+  const kcal = parseFloat(document.getElementById('m-kcal').value) || 0;
+  const kh   = parseFloat(document.getElementById('m-kh').value)   || 0;
+  const ew   = parseFloat(document.getElementById('m-ew').value)   || 0;
+  const fat  = parseFloat(document.getElementById('m-fat').value)  || 0;
+  if (!name) { document.getElementById('m-name').focus(); return; }
+  if (!kcal) { alert('Bitte kcal/100g eingeben.'); document.getElementById('m-kcal').focus(); return; }
+  closeManual();
+  closeSearch();
+  openAmount({ name, brand: '', kp: kcal, khp: kh, ewp: ew, fatp: fat, unit: 'g' });
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
@@ -903,6 +1154,7 @@ function closeSearch() {
   hint.textContent = 'Suchbegriff eingeben oder Barcode scannen';
   hint.style.display = 'block';
   window._sr = [];
+  closeManual(); // Manual-Formular zurücksetzen
 }
 
 function onSearch(val) {
@@ -921,20 +1173,22 @@ function onSearch(val) {
   }
   document.getElementById('recent-wrap').style.display = 'none';
 
-  // ── Stufe 1: Verlauf (kt_recent) – sofort, 0ms, keine API ────────────────
+  // ── Stufe 1: Verlauf + lokale Datenbank – sofort, 0ms, keine API ──────────
   const rHits = recentMatches(q);
-  if (rHits.length) showResults(rHits);
+  const lHits = localMatches(q);
+  const instant = dedupeByName([...rHits, ...lHits]).slice(0, 8);
+  if (instant.length) showResults(instant);
 
   // ── Stufe 2: Persistenter Cache → sofort + stille Hintergrund-Aktualisierung
   const cached = scGet(q) || searchCache[q];
   if (cached) {
-    showResults(cached); // überschreibt Verlaufs-Treffer mit vollständiger Liste
+    showResults(cached); // überschreibt Instant-Treffer mit vollständiger Liste
     searchTimer = setTimeout(() => doSearch(q, true), 800);
     return;
   }
 
   // ── Stufe 3: API-Suche – Ladeindikator nur wenn noch nichts angezeigt ────
-  if (!rHits.length) {
+  if (!instant.length) {
     const sh = document.getElementById('search-hint');
     sh.textContent = 'Suche…';
     sh.style.display = 'block';
@@ -1073,14 +1327,21 @@ async function doSearch(q, bgUpdate = false) {
     // Nur anzeigen wenn das Eingabefeld noch denselben Begriff hat
     const currentQ = document.getElementById('search-inp').value.trim();
     if (currentQ === q) {
-      if (!bgUpdate || prods.length) {
-        showResults(prods); // Vordergrund: immer. Hintergrund: nur wenn Ergebnisse
+      if (prods.length) {
+        showResults(prods);
+      } else if (!bgUpdate) {
+        // API leer → lokale Daten als Fallback zeigen
+        const fallback = dedupeByName([...recentMatches(q), ...localMatches(q)]).slice(0, 8);
+        showResults(fallback); // zeigt "Keine Ergebnisse" wenn auch fallback leer
       }
+      // bgUpdate + leer → nichts tun, aktuelle Anzeige behalten
     }
   } catch (e) {
     if (e.name === 'AbortError') return;
     if (!bgUpdate) {
-      document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
+      const fallback = dedupeByName([...recentMatches(q), ...localMatches(q)]).slice(0, 8);
+      if (fallback.length) showResults(fallback);
+      else document.getElementById('search-hint').textContent = 'Keine Verbindung – bitte nochmal versuchen.';
     }
   }
 }
