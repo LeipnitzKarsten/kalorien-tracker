@@ -1,8 +1,9 @@
+<!-- session-wissensdatei -->
 # Kalorien Tracker – Projektdokumentation
 
-**Stand:** 13. Mai 2026  
-**Erstellt mit:** Claude (Anthropic)  
-**GitHub:** https://github.com/LeipnitzKarsten/kalorien-tracker  
+**Stand:** 13. Mai 2026
+**Erstellt mit:** Claude (Anthropic)
+**GitHub:** https://github.com/LeipnitzKarsten/kalorien-tracker
 **Live-URL:** https://leipnitzkarsten.github.io/kalorien-tracker/
 
 ---
@@ -123,12 +124,12 @@ kt_recent   → Häufig verwendete Produkte (6 Monate, max. 50 Einträge)
 
 ### Update einspielen
 ```bash
-cd "/Users/karstenleipnitz/Library/Mobile Documents/com~apple~CloudDocs/Kalorien Tracker"
+cd "/Users/karstenleipnitz/Library/Mobile Documents/com~apple~CloudDocs/KI/Kalorien Tracker"
 git add -A
 git commit -m "Beschreibung der Änderung"
 git push
 ```
-→ Nach ca. 1–2 Minuten ist die neue Version live.  
+→ Nach ca. 1–2 Minuten ist die neue Version live.
 → Auf dem iPhone: Pull-to-Refresh im Safari oder einfach App neu öffnen.
 
 ### GitHub-Zugangsdaten (für Pushes)
